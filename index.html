@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Sales Aggregator</title>
+<style>
+:root{--bg:#f4f6f9;--surface:#ffffff;--ink:#17212f;--muted:#5b6778;--line:#dce1e9;--accent:#1f5eff;--c1:#1f5eff;--c2:#f08c00;--c3:#12a37f;--c4:#c2255c;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);color-scheme:light}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0e141d;--surface:#161e2a;--ink:#e8edf4;--muted:#9aa7b8;--line:#263142;--accent:#6c9bff;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#0e141d;--surface:#161e2a;--ink:#e8edf4;--muted:#9aa7b8;--line:#263142;--accent:#6c9bff;color-scheme:dark}
+*,*::before,*::after{box-sizing:inherit}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+main{max-width:1080px;margin:0 auto;padding:20px 16px 40px}
+h1{font-size:1.6rem;margin:0 0 4px;letter-spacing:-.01em}
+.sub{color:var(--muted);margin:0 0 20px}
+.filters{display:flex;flex-wrap:wrap;gap:12px;align-items:end;margin-bottom:20px}
+label{display:flex;flex-direction:column;font-size:.85rem;color:var(--muted);gap:4px}
+select,input,button{font:inherit;color:var(--ink);background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:8px 10px}
+button{cursor:pointer}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:20px}
+.kpi{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:14px}
+.kpi span{display:block;font-size:.85rem;color:var(--muted)}
+.kpi strong{font-size:1.5rem;font-variant-numeric:tabular-nums}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:16px;margin-bottom:20px}
+.panel h2{font-size:1rem;margin:0 0 12px}
+.grid{display:grid;grid-template-columns:2fr 1fr;gap:20px}
+.chart{position:relative;height:300px}
+.scroll{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}
+th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);white-space:nowrap}
+th{font-size:.85rem;color:var(--muted);font-weight:600}
+td.n,th.n{text-align:right}
+.empty{color:var(--muted);padding:12px 0}
+@media (max-width:760px){.grid{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<main>
+  <h1>Sales aggregator</h1>
+  <p class="sub">Orders from four sales channels combined into one view. Sample data, Nov 2025 to Oct 2026.</p>
+
+  <div class="filters">
+    <label>Channel
+      <select id="channel"><option value="all">All channels</option></select>
+    </label>
+    <label>From <input type="date" id="from" value="2025-11-01"></label>
+    <label>To <input type="date" id="to" value="2026-10-31"></label>
+    <button id="reset" type="button">Reset filters</button>
+  </div>
+
+  <div class="kpis">
+    <div class="kpi"><span>Revenue</span><strong id="k-rev">–</strong></div>
+    <div class="kpi"><span>Orders</span><strong id="k-ord">–</strong></div>
+    <div class="kpi"><span>Units sold</span><strong id="k-units">–</strong></div>
+    <div class="kpi"><span>Average order value</span><strong id="k-aov">–</strong></div>
+  </div>
+
+  <div class="grid">
+    <section class="panel"><h2>Monthly revenue by channel</h2><div class="chart"><canvas id="monthly"></canvas></div></section>
+    <section class="panel"><h2>Revenue by channel</h2><div class="chart"><canvas id="bychan"></canvas></div></section>
+  </div>
+
+  <section class="panel">
+    <h2>Top products</h2>
+    <div class="scroll"><table>
+      <thead><tr><th>Product</th><th>Category</th><th class="n">Units</th><th class="n">Revenue</th></tr></thead>
+      <tbody id="top"></tbody>
+    </table></div>
+  </section>
+</main>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script>
+// ---- Sample data (deterministic) ----
+const CHANNELS = ["Shopify","Amazon","Etsy","WooCommerce"];
+const COLORS = ["#1f5eff","#f08c00","#12a37f","#c2255c"];
+const PRODUCTS = [
+  ["Canvas tote bag","Bags",24],["Leather wallet","Accessories",39],["Ceramic mug","Home",16],
+  ["Desk lamp","Home",58],["Wireless earbuds","Electronics",79],["Yoga mat","Fitness",32],
+  ["Scented candle","Home",19],["Water bottle","Fitness",22],["Phone stand","Electronics",14],
+  ["Notebook set","Stationery",12]
+];
+function rng(a){return function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296}}
+const rand = rng(42);
+const ORDERS = [];
+const start = new Date(Date.UTC(2025,10,1)), days = 365;
+for (let i=0;i<1100;i++){
+  const d = new Date(start.getTime() + Math.floor(rand()*days)*864e5);
+  const ch = CHANNELS[Math.floor(Math.pow(rand(),1.4)*CHANNELS.length)];
+  const p = PRODUCTS[Math.floor(rand()*PRODUCTS.length)];
+  const qty = 1 + Math.floor(rand()*3);
+  ORDERS.push({date:d.toISOString().slice(0,10),channel:ch,product:p[0],category:p[1],qty:qty,total:qty*p[2]});
+}
+
+// ---- Aggregation ----
+const $ = id => document.getElementById(id);
+const money = n => new Intl.NumberFormat("en-US",{style:"currency",currency:"USD",maximumFractionDigits:0}).format(n);
+const num = n => new Intl.NumberFormat("en-US").format(n);
+
+function aggregate(){
+  const ch = $("channel").value, from = $("from").value, to = $("to").value;
+  const rows = ORDERS.filter(o => (ch==="all"||o.channel===ch) && (!from||o.date>=from) && (!to||o.date<=to));
+  const rev = rows.reduce((s,o)=>s+o.total,0), units = rows.reduce((s,o)=>s+o.qty,0);
+  const months = [...new Set(rows.map(o=>o.date.slice(0,7)))].sort();
+  const monthly = {}; CHANNELS.forEach(c => monthly[c] = months.map(()=>0));
+  rows.forEach(o => monthly[o.channel][months.indexOf(o.date.slice(0,7))] += o.total);
+  const chanTotals = CHANNELS.map(c => rows.filter(o=>o.channel===c).reduce((s,o)=>s+o.total,0));
+  const prod = {};
+  rows.forEach(o => { const p = prod[o.product] || (prod[o.product]={name:o.product,cat:o.category,units:0,rev:0}); p.units+=o.qty; p.rev+=o.total; });
+  const top = Object.values(prod).sort((a,b)=>b.rev-a.rev).slice(0,8);
+  return {rows,rev,units,months,monthly,chanTotals,top};
+}
+
+// ---- Rendering ----
+let monthlyChart, chanChart;
+function css(v){return getComputedStyle(document.documentElement).getPropertyValue(v).trim()}
+function render(){
+  const a = aggregate();
+  $("k-rev").textContent = money(a.rev);
+  $("k-ord").textContent = num(a.rows.length);
+  $("k-units").textContent = num(a.units);
+  $("k-aov").textContent = a.rows.length ? money(a.rev/a.rows.length) : "–";
+
+  $("top").innerHTML = a.top.length
+    ? a.top.map(p=>`<tr><td>${p.name}</td><td>${p.cat}</td><td class="n">${num(p.units)}</td><td class="n">${money(p.rev)}</td></tr>`).join("")
+    : `<tr><td colspan="4" class="empty">No orders match these filters. Widen the date range or pick another channel.</td></tr>`;
+
+  if (typeof Chart === "undefined") return;
+  const text = css("--muted"), grid = css("--line");
+  Chart.defaults.color = text; Chart.defaults.borderColor = grid;
+  const labels = a.months.map(m => new Date(m+"-01T00:00:00Z").toLocaleString("en-US",{month:"short",year:"2-digit",timeZone:"UTC"}));
+  const ds = CHANNELS.map((c,i)=>({label:c,data:a.monthly[c],backgroundColor:COLORS[i]}));
+  if (monthlyChart) monthlyChart.destroy();
+  monthlyChart = new Chart($("monthly"),{type:"bar",data:{labels,datasets:ds},
+    options:{responsive:true,maintainAspectRatio:false,scales:{x:{stacked:true},y:{stacked:true,ticks:{callback:v=>"$"+num(v)}}},plugins:{legend:{position:"bottom"}}}});
+  if (chanChart) chanChart.destroy();
+  chanChart = new Chart($("bychan"),{type:"bar",data:{labels:CHANNELS,datasets:[{data:a.chanTotals,backgroundColor:COLORS}]},
+    options:{indexAxis:"y",responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{ticks:{callback:v=>"$"+num(v)}}}}});
+}
+
+CHANNELS.forEach(c => { const o=document.createElement("option"); o.value=c; o.textContent=c; $("channel").appendChild(o); });
+["channel","from","to"].forEach(id => $(id).addEventListener("change", render));
+$("reset").addEventListener("click", () => { $("channel").value="all"; $("from").value="2025-11-01"; $("to").value="2026-10-31"; render(); });
+window.addEventListener("load", render);
+</script>
+</body>
+</html>
